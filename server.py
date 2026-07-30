@@ -878,8 +878,14 @@ def interact_mode(monitor: Monitor, form: dict, writer: FormWriter, cookie: str,
     try:
         while True:
             try:
-                hostname = socket.gethostname()
-                username = os.getenv("USERNAME", "user")
+                rows = monitor.rows_for(key)
+                if rows:
+                    latest = max(rows, key=lambda r: (r["_submitDate"], r["_id"] or 0))
+                    hostname = latest.get("Hostname") or "unknown"
+                    username = latest.get("Username") or "user"
+                else:
+                    hostname = "unknown"
+                    username = "user"
                 prompt = f"\033[91m{hostname}\\{username} $> \033[0m"
                 message = monitor.console.input(f"[interact] {key} {prompt}").strip().lstrip("﻿").strip()
             except EOFError:
