@@ -2,7 +2,7 @@
 
 set -e
 
-PROJECT_NAME="msforms-c2"
+PROJECT_NAME="cacherc2"
 VERSION=$(git describe --tags --always 2>/dev/null || echo "unknown")
 TIMESTAMP=$(date +%s)
 

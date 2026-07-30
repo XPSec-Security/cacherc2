@@ -1,15 +1,73 @@
-# Ms-Forms C2
+# CacherC2
 
 ## Introduction
 
-This project demonstrates a novel approach to building a Command and Control (C2) infrastructure by leveraging Microsoft Forms as the primary communication medium. Unlike traditional C2 frameworks that require dedicated servers, complex infrastructure, and custom protocols, this solution uses a ubiquitous and legitimate Microsoft cloud service to establish bidirectional communication with compromised endpoints.
+CacherC2 demonstrates a novel approach to Command and Control (C2) infrastructure by leveraging Microsoft Forms as the primary communication medium. Unlike traditional C2 frameworks which require dedicated servers, complex infrastructure, and custom protocols, this solution uses a legitimate Microsoft cloud service to establish bidirectional communication with compromised endpoints, reducing the attacker's footprint and blending traffic with ordinary enterprise activity.
+
+![CacherC2](images/1.png)
+
+
+---
+
+## Setup
+
+### 1. Creating the Microsoft Form
+
+Before deploying the C2 framework, you must create a Microsoft Form with the exact specifications below. This form acts as the centralized communication hub between the operator and all active agents.
+
+#### Configuration Requirements
+
+| Setting | Value |
+|---|---|
+| **Access level** | Public — anyone with the link can access |
+| **Title field** | Exactly one title field (used to issue commands to clients) |
+| **Questions** | Exactly **9** questions, all of type **Text** (single-line), named `A` through `I` |
+
+> The form must be public so that both agents and the server can submit and retrieve data without authentication complications.
+
+![Microsoft Form Configuration](images/form.png)
+
+---
+
+### 2. Configuring the Agent
+
+**Step 1 — Get the Form ID**
+
+After publishing the form, extract its ID from the response URL:
+
+```
+https://forms.cloud.microsoft/Pages/ResponsePage.aspx?id=[FORM_ID_HERE]
+```
+
+**Step 2 — Paste the ID into the agent source**
+
+Edit `cmd/client/main.go` at line 14 and replace the placeholder with your Form ID:
+
+```go
+const (
+    FormID               = "XXXXXXXXXXXXX" // CHANGE TO YOUR PUBLIC FORM ID
+    PollIntervalSeconds  = 3
+    ExpectedFieldCount   = 9
+    EmptyFieldOnFirstSub = 9
+)
+```
+
+**Step 3 — Build**
+
+Use `build.bat` (Windows) or `build.sh` (Linux/macOS) to compile the agent. Refer to `.env.example` for server-side environment variable configuration.
+
+---
+
+## Workflow
+
+The diagram below illustrates the full communication flow between compromised endpoints, the Microsoft Forms relay, and the operator's server.
 
 ```mermaid
 graph TB
     subgraph endpoints["COMPROMISED ENDPOINTS"]
-        host1["Windows Host 1<br/>(Client: PowerShell)"]
-        host2["Windows Host 2<br/>(Client: PowerShell)"]
-        hostn["... N Hosts<br/>(Client: PowerShell)"]
+        host1["Windows Host 1<br/>(client.exe)"]
+        host2["Windows Host 2<br/>(client.exe)"]
+        hostn["... N Hosts<br/>(client.exe)"]
     end
     
     subgraph cloud["MICROSOFT CLOUD INFRASTRUCTURE"]
@@ -33,56 +91,21 @@ graph TB
     style forms fill:#f9f9f9,stroke:#333,color:#000
 ```
 
----
-
-## Setup
-
-### Creating the Microsoft Form
-
-Before running the C2 framework, you must create a Microsoft Form with the exact specifications below. This form will serve as your centralized communication hub.
-
-#### Form Configuration Requirements
-
-1. **Access Level**
-   - The form must be PUBLIC (anyone with the link can access)
-   - This allows both the client and server to submit and retrieve data without authentication complications
-
-2. **Form Title**
-   - The form must have exactly ONE title field
-   - This title is used for issuing commands from the operator to clients
-   - Format: `[UUID] COMMAND` (e.g., `[3f9a1c2b] whoami`)
-
-3. **Questions (Fields)**
-   - The form must have exactly NINE (9) questions
-   - ALL questions must be of type "Text" (single-line text input)
-
-![Microsoft Form Configuration](images/form.png)
-
----
-
-## Workflow Examples
-
-### Example 1: Initial Connection and Host Detection
-
-![Workflow Example 1](images/1.png)
-
-### Example 2: Command Execution and Response Collection
-
-![Workflow Example 2](images/2.png)
-
-### Example 3: Multi-Host Management
-
-![Workflow Example 3](images/3.png)
+Each agent polls the form at a configurable interval and submits data through the standard HTTPS/TLS channel provided by Microsoft. The operator's server reads agent responses and issues commands by modifying the form's title field — making all traffic appear as legitimate Microsoft 365 activity.
 
 ---
 
 ## License & Disclaimer
 
-This project is provided for **authorized security testing and educational purposes only**. Unauthorized access to computer systems is illegal. Users are responsible for ensuring all use is legal and authorized.
+This project is provided strictly for **authorized security testing and educational purposes**. Unauthorized access to computer systems is illegal in most jurisdictions.
 
-- Do not use on systems you don't own or have explicit permission to test
-- Do not use for malicious purposes
-- Follow all applicable laws and regulations
-- Report security findings responsibly to affected organizations
+By using this software, you agree to the following:
 
-Author & Research: @xpsecsecurity
+- Only use on systems you own or have **explicit, written authorization** to test
+- Never use for malicious, criminal, or unauthorized purposes
+- Comply with all applicable local, national, and international laws
+- Disclose any security findings responsibly to the affected organizations
+
+**The author assumes no liability for any misuse of this tool.**
+
+> Research & development: [@xpsecsecurity](https://github.com/xpsecsecurity)

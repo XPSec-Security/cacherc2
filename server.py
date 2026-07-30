@@ -36,17 +36,17 @@ except ImportError:
     HAS_READLINE = False
 
 BANNER = r"""
-[37m  _______            __              [91m _______ _______ [0m
-[37m |   _   .---.-.----|  |--.-----.----[91m|   _   |       |[0m
-[37m |.  1___|  _  |  __|     |  -__|   _[91m|.  1___|___|   |[0m
-[37m |.  |___|___._|____|__|__|_____|__| [91m|.  |___ /  ___/ [0m
-[37m |:  1   |                           [91m|:  1   |:  1  \ [0m
-[37m |::.. . |                           [91m|::.. . |::.. . |[0m
-[37m `-------'                           [91m`-------`-------'[0m
+[97m  _______            __              [91m _______ _______ [0m
+[97m |   _   .---.-.----|  |--.-----.----[91m|   _   |       |[0m
+[97m |.  1___|  _  |  __|     |  -__|   _[91m|.  1___|___|   |[0m
+[97m |.  |___|___._|____|__|__|_____|__| [91m|.  |___ /  ___/ [0m
+[97m |:  1   |                           [91m|:  1   |:  1  \ [0m
+[97m |::.. . |                           [91m|::.. . |::.. . |[0m
+[97m `-------'                           [91m`-------`-------'[0m
 
 
- [37mCacherC2::Microsoft Forms as a Command and Control ([91mC2[37m)[0m
- [94mby vnxdtzip[0m
+ [97mCacherC2::Microsoft Forms as a Command and Control ([91mC2[97m)[0m
+ [94mhttps://github.com/XPSec-Security/cacherc2[0m
 """.replace("[", "\033[")
 
 def print_banner() -> None:
@@ -379,7 +379,7 @@ def fetch_json(url: str, form: dict, cookie: str | None, opener=None, attempts: 
                     f"The server answered {e.code} while listing the responses.\n"
                     "Listing responses requires the OWNER's session - anonymous has no "
                     "access, and the cookie expires in about 1 h. Refresh the COOKIE "
-                    "constant at the top of this file.",
+                    "constant at the env file.",
                     fatal=True,
                 ) from e
 

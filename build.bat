@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set PROJECT_NAME=msforms-c2
+set PROJECT_NAME=cacherc2
 for /f %%A in ('git describe --tags --always 2^>nul') do set VERSION=%%A
 if "%VERSION%"=="" set VERSION=unknown
 
